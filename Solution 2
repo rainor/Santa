@@ -1,0 +1,902 @@
+
+
+#include <set>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <stdio.h>
+#include <algorithm>
+#include <list>
+#include <math.h>
+#include <time.h>
+
+using namespace std;
+long long const ref_time_second=1418256000; //2014.12.11.0.0
+int const elf_starting_minute=540; //2014.1.1 9:00   46
+double threshold1=712.7706741;
+int assigncount=0;
+int const test_subset_size=10000000;
+int const NumElves=900;
+
+
+struct elf{
+	int id;
+	double rate;
+	long activetime;
+};
+
+struct toy{
+	int id;
+	int year;
+	int month;
+	int day;
+	int hour;
+	int minute;
+	long activetimeinMinute;
+	long duration;
+	int elfid;
+};
+
+struct date{
+	int year;
+	int month;
+	int day;
+	int hour;
+	int minute;
+};
+
+struct assign{
+	int ToyId;
+	int ElfId;
+	date StartTime;
+	long StartMinute;
+	long duration;
+	double rate;
+};
+
+struct optAssign{
+	int bootime;
+	vector<toy> optAssignBlock;
+};
+
+struct less_duration {
+  bool operator() (const optAssign& a, const optAssign& b) const
+  {return a.bootime<b.bootime;}
+};
+
+struct toy_less_duration {
+  bool operator() (const toy& a, const toy& b) const
+  {return a.duration<b.duration;}
+};
+
+toy temp4search;
+vector<toy> trash;
+vector<toy> trashkiller;
+list<toy> toylist;
+list<toy> longterm;
+list<toy> midterm;
+list<toy> shortterm;
+vector<assign> submission;
+//vector<optAssign> optAssignVector;
+//multiset<optAssign,less_duration> optAssignSet;
+//multiset<optAssign,less_duration>::iterator it_optAssignSet;
+multiset<toy,toy_less_duration> booSet;
+multiset<toy,toy_less_duration>::iterator it_booSet;
+
+//int MinInMon_Leap[13]={0,31*24*60,29*24*60,31*24*60,30*24*60,31*24*60,30*24*60,31*24*60,31*24*60,30*24*60,31*24*60,30*24*60,31*24*60};
+//int MinInMon[13]={0,31*24*60,28*24*60,31*24*60,30*24*60,31*24*60,30*24*60,31*24*60,31*24*60,30*24*60,31*24*60,30*24*60,31*24*60};
+
+int date2min(int month, int day, int hour, int minute){
+	if(month==3){
+		month=(month-1)*28;
+	}
+	if(month==5||month==7||month==10||month==12){
+		month=(month-1)*30;
+	}
+	else
+		month=(month-1)*31;
+		return month*24*60+(day-1)*24*60+hour*60+minute; //if the order list go beyond one year, an adjustment is need.
+}
+
+date min2date(long min){
+	date d;
+	struct tm * ptm;
+	time_t a=min*60+ref_time_second;
+	ptm = gmtime (&a);
+	d.year=ptm->tm_year+1900;
+	d.month=ptm->tm_mon+1;
+	d.day=ptm->tm_mday;
+	d.hour=ptm->tm_hour;
+	d.minute=ptm->tm_min;
+	return d;
+}
+
+bool comp_wait(elf a, elf b){
+	return a.rate<b.rate;
+}
+
+bool comp_toy(toy a, toy b){ //increase should be < when use sort in list
+	return a.duration<b.duration;
+}
+
+bool comp_toy2(toy a, toy b){
+	return a.duration<b.duration;
+}
+
+bool comp_run(elf a, elf b){
+	return a.activetime>b.activetime;
+}
+
+bool comp_elf(elf a, elf b){
+	return a.activetime>b.activetime;
+}
+
+bool comp_boo_duration(optAssign a, optAssign b){ //increasing when sort list
+  return a.bootime<b.bootime;
+}
+
+bool comp_StartMinute(assign a, assign b){ //increasing when sort list
+  return a.StartMinute<b.StartMinute;
+}
+
+assign assigntask(elf a, toy b){
+	assign c;
+	c.ElfId=a.id;
+	c.ToyId=b.id;
+	c.StartTime=min2date(a.activetime);
+	c.StartMinute=a.activetime;
+	c.duration=long(ceil(b.duration/a.rate));
+	c.rate=a.rate;
+	assigncount++;
+
+	return c;
+}
+
+//vector<toy>* findActiveStart(elf a,vector<vector<toy>*> & b){  //b must be sorted increasing by first element
+////	vector<toy>* matchtoyset=findActiveStart(elfheap.front(),optassign);
+////		  for(int i=0;i<matchtoyset->size();i++){
+////			  work(elfheap.front(),(*matchtoyset)[i]);
+////		  }
+//	int elfActiveTimeTo19=1140-(a.activetime)%1440;
+//	//vector<vector<toy>*>::iterator it=b.begin();
+//	int frontend=0,backend=b.size()-1;
+//	//int iterate=(frontend+backend)/2;
+//	//int something=((b[iterate])->front().duration);
+//	while((backend-frontend)>1){
+//		if(elfActiveTimeTo19<((b[(backend-frontend)/2+frontend])->front().duration)){
+//			backend=(backend-frontend)/2+frontend;
+//		}
+//		else
+//			frontend+=(backend-frontend)/2;
+//	}
+//	return b[frontend];
+//}
+
+
+bool work(elf & a, const toy & b){  // under normal situation, it shall always return true
+    //cout<<"elfid:"<<a.id<<endl;
+
+	submission.push_back(assigntask(a,b));
+
+	int workMinutes=long(ceil(b.duration/a.rate));
+	if(assigncount%1000000==0)
+		cout<<"ass:"<<assigncount<<"	id:"<<a.id<<"	rate:"<<a.rate<<"	du:"<<b.duration<<" "<<workMinutes<<endl;
+
+	int elfActiveTimeTo19=1140-(a.activetime)%1440;
+
+	//use this can let elf start from 9
+	int elfActiveTimeChangeToNextDay9=((a.activetime)/1440+1)*1440+540;
+	//
+	int OTMinutes=workMinutes-elfActiveTimeTo19;
+	int ResidualOTMinutes=OTMinutes%1440;
+	int sanctionedMinutes=0;
+	int unsanctionedMinutes=0;
+	int firstRestPeriod=(1140-(a.activetime+workMinutes)%1440);
+
+	if(workMinutes<=elfActiveTimeTo19){
+		a.activetime+=workMinutes;
+		sanctionedMinutes=workMinutes;
+		a.rate*=pow(1.02,double(sanctionedMinutes)/60)*pow(0.9,double(unsanctionedMinutes)/60);
+		if(a.rate>4)
+			a.rate=4;
+		if(a.rate<0.25)  // maybe not necessary
+			a.rate=0.25;
+//		cout<<"boost"<<endl;
+//		cout<<a.rate<<endl;
+//		cout<<a.activetime<<endl;
+
+		return true;
+	}
+
+	else if(ResidualOTMinutes<=840){  // ending inside the unsanctioned period
+		sanctionedMinutes=OTMinutes/1440*600+elfActiveTimeTo19;
+		unsanctionedMinutes=ResidualOTMinutes+OTMinutes/1440*840;
+		int unsanctionedMinutesMinusFirst=unsanctionedMinutes-firstRestPeriod;
+		double changerate=pow(1.02,double(sanctionedMinutes)/60)*pow(0.9,double(unsanctionedMinutes)/60);
+		a.rate*=changerate;
+		if(a.rate>4)
+			a.rate=4;
+		if(a.rate<0.25)
+			a.rate=0.25;
+//		cout<<"Shittttttttt!"<<endl;
+//		cout<<a.rate<<endl;
+//		cout<<a.activetime<<endl;
+
+		if((a.activetime+workMinutes+300)%1440>=840){ //&&(a.activetime+workMinutes)%1440<1140){ //rest can start from sanctioned period
+			a.activetime+=workMinutes+firstRestPeriod+unsanctionedMinutesMinusFirst/600*1440+unsanctionedMinutesMinusFirst%600+840;
+		}
+		else{ //rest can not start from sanctioned period, so it must start from 9:00 next day.
+			a.activetime+=workMinutes+(840-(a.activetime+workMinutes+300)%1440)+unsanctionedMinutes/600*1440+unsanctionedMinutes%600;
+		}
+
+		if(changerate<=1)
+			return false;
+		return true;
+	}
+	else{ //ending inside the sanctioned period
+		sanctionedMinutes=OTMinutes/1440*600+elfActiveTimeTo19+(ResidualOTMinutes-840);
+		unsanctionedMinutes=(OTMinutes/1440+1)*840;
+		int unsanctionedMinutesMinusFirst=unsanctionedMinutes-firstRestPeriod;
+		if((a.activetime+workMinutes+300)%1440>=840){ //&&(a.activetime+workMinutes)%1440<1140){ //rest can start from sanctioned period
+			a.activetime+=workMinutes+firstRestPeriod+unsanctionedMinutesMinusFirst/600*1440+unsanctionedMinutesMinusFirst%600+840;
+		}
+		else{ //rest can not start from sanctioned period, so it must start from 9:00 next day.
+			a.activetime+=workMinutes+(840-(a.activetime+workMinutes+300)%1440)+unsanctionedMinutes/600*1440+unsanctionedMinutes%600;
+		}
+		double changerate=pow(1.02,double(sanctionedMinutes)/60)*pow(0.9,double(unsanctionedMinutes)/60);
+		a.rate*=changerate;
+		if(a.rate>4)
+			a.rate=4;
+		if(a.rate<0.25)
+			a.rate=0.25;
+
+//		cout<<"Shittttttttt!"<<endl;
+//		cout<<a.rate<<endl;
+//		cout<<a.activetime<<endl;
+
+
+		if(changerate<=1)
+			return false;
+		return true;
+	}
+	return false;
+}
+
+
+void checkActiveTimeofElf(){
+
+}
+
+
+
+int main () {
+	string line;
+
+
+	//statistic
+	int longtermcount=0;
+	int shorttermcount=0;
+	long long sumoflong=0;
+	long long sumofshort=0;
+	int midtermcount=0;
+	long long sumofmid=0;
+
+
+	elf elvesarray[NumElves];
+	for (int i=0;i<NumElves;i++){
+	  elvesarray[i].id=i+1;
+	  elvesarray[i].activetime=elf_starting_minute;
+	  elvesarray[i].rate=1;
+	}
+
+	ifstream myfile ("toys_rev2.csv");
+	ofstream modifieddata("toys_minute.csv");
+	ofstream Tempsubmissionfile("toys_submission.csv");
+	ofstream optAssignOutput("optAssign.txt");
+	ofstream FinalSubmission("FinalSubmission.csv");
+
+	modifieddata<<"id,start_time,duration\n";
+	long max=0;
+	if (myfile.is_open())
+	{
+	getline (myfile,line);
+	int count=0;
+	while ( getline (myfile,line) && count<test_subset_size)
+	{
+	  char * pch;
+	  char * a = new char [line.length()+1];
+	  strcpy (a, line.c_str());
+		  pch = strtok (a," ,.-");
+		  toy* temp=new toy();
+		  temp->id=atoi(pch);
+
+		  modifieddata<<temp->id<<",";
+
+		  pch = strtok (NULL," ,.-");
+		  temp->year=0;  //if the order list go beyond one year, here we need to change back into atoi(pch).
+
+		  pch = strtok (NULL," ,.-");
+		  temp->month=atoi(pch);
+
+		  pch = strtok (NULL," ,.-");
+		  temp->day=atoi(pch);
+
+		  pch = strtok (NULL," ,.-");
+		  temp->hour=atoi(pch);
+
+		  pch = strtok (NULL," ,.-");
+		  temp->minute=atoi(pch);
+
+		  temp->activetimeinMinute=date2min(temp->month,temp->day, temp->hour, temp->minute);
+		  modifieddata<<temp->activetimeinMinute<<",";
+
+		  pch = strtok (NULL," ,.-");
+		  temp->duration=atol(pch);
+
+
+
+		  if(temp->duration<=2848){//(ceil(temp->duration/0.25)<=600){
+			  shorttermcount++;
+			  sumofshort+=temp->duration;
+			  shortterm.push_back(*temp);
+		  }
+
+		  else{
+			  longtermcount++;
+		  sumoflong+=temp->duration;
+		  longterm.push_back(*temp);
+		  }
+
+		  modifieddata<<temp->duration<<"\n";
+
+		  toylist.push_back(*temp);
+
+		  delete temp;
+		  delete[] a;
+
+
+		  count++;
+	}
+	myfile.close();
+	}
+
+	else cout << "Unable to open file";
+
+	cout<<"longtermcount:"<<longtermcount<<endl;
+	cout<<"sum:"<<sumoflong<<endl;
+	cout<<"shorttermcount:"<<shorttermcount<<endl;
+	cout<<"sum:"<<sumofshort<<endl;
+
+
+	longterm.sort(comp_toy);//increasing, by doing this we can use same OT function for both long and mid term
+	shortterm.sort(comp_toy);//increasing
+
+
+
+
+	int countprint=0;
+
+	vector<elf> elfheap(elvesarray,elvesarray+sizeof(elvesarray) / sizeof(elf));
+	make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+	//  for(int i=0;i<elfheap.size();i++){
+	//	  cout<<elfheap[i].activetime<<endl;
+	//  }
+
+	cout<<"done"<<endl;
+	Tempsubmissionfile<<"ToyId,ElfId,StartTime,Duration"<<endl;
+
+	//optimize, setup the optassign set contains the correspondent boo to long
+
+//	int const shorttermsize=shortterm.size();
+//	int const longtermsize=longterm.size();
+//	cout<<"longtermsize:"<<longterm.size()<<endl;
+//	cout<<"optAssignVectorsize:"<<optAssignVector.size()<<endl;
+//	//int bootime[longtermsize]=0;  //boo time need to scaled by 0.25 later
+//	for(int i=0;i<longtermsize;i++){  // use longterm to create the optAssignVector
+//		optAssign temp;
+//		//	  if(shortterm.empty()){
+//		//		  toy temptoy;
+//		//		  temp->push_back(temptoy);
+//		//	  }
+//		temp.optAssignBlock.push_back(longterm.back());
+//		longterm.pop_back();
+//		optAssignVector.push_back(temp);
+//	}
+//	cout<<"Longterm insert to optAssign done"<<endl;
+//
+//	vector<optAssign>::iterator it=optAssignVector.begin();
+//	cout<<"longtermsize:"<<longterm.size()<<endl;
+//	cout<<"optAssignVectorsize:"<<optAssignVector.size()<<endl;
+//
+//
+//
+//	for(int i=0;i<shorttermsize;i++){  //min(shorttermsize,longtermsize), first fill the list with short term toy with only one layer
+//		if(shortterm.empty())
+//			break;
+//		it->optAssignBlock.push_back(shortterm.back());
+//		it->bootime=shortterm.back().duration;
+//		//cout<<it->bootime<<endl;
+//		shortterm.pop_back();
+//		++it;
+//		if(it->optAssignBlock.front().duration<20000){//it==optAssignVector.end()
+//			it=optAssignVector.begin();
+//			cout<<"reach end"<<endl;
+//		}
+//		//    	  if(it==optassign.end())
+//		//    		  it=optassign.begin();
+//	}
+//	cout<<"shortterm insert 1 to optAssign done"<<endl;
+//
+//	it=optAssignVector.begin();
+//	//int temp_i=0;
+//	int full_count=0;
+//	bool full=false;
+//	int shorttermnewsize=shortterm.size();
+//
+//	for(int i=0;i<shorttermnewsize;i++){  // fill the list again depends on if the next layer will be overflow the day time
+//		if(shortterm.empty())
+//			break;
+//		while((shortterm.back().duration+it->bootime)/0.25>600){
+//			++full_count;
+//			++it;
+//			if(it==optAssignVector.end())
+//				it=optAssignVector.begin();
+//			if(full_count==longtermsize){
+//				full=true;
+//				break;
+//			}
+//		}
+//	    if(full==true){
+//	    		break;
+//	    }
+//	    it->optAssignBlock.push_back(shortterm.back());
+//	    it->bootime+=shortterm.back().duration;
+//		shortterm.pop_back();
+//		++it;
+//		if(it==optAssignVector.end())
+//			it=optAssignVector.begin();
+//	}
+//
+//	cout<<"shortterm insert 2 to optAssign done"<<endl;
+
+
+
+
+	//sort(optAssignVector.begin(),optAssignVector.end(),comp_boo_duration);  //use for binary search in the match part
+
+	booSet.insert (shortterm.begin(),shortterm.end());
+	// opt- assign main loop
+	cout<<"booSet to set done"<<endl;
+	cout<<"booSet size:"<<booSet.size()<<endl;
+
+
+
+
+//	for(	it_optAssignSet=optAssignSet.begin();it_optAssignSet!=optAssignSet.end();++it_optAssignSet){
+//		optAssignOutput<<"boottime:"<<it_optAssignSet->bootime<<" ";
+//		for(int j=it_optAssignSet->optAssignBlock.size()-1;j>=0;j--){
+//			optAssignOutput<<j<<":"<<it_optAssignSet->optAssignBlock[j].duration<<" ";
+//		}
+//		optAssignOutput<<endl;
+//	}
+
+	//build trash killer
+
+		temp4search.duration=150;
+		double rate1=0.25;
+		while(rate1<4&&(it_booSet = booSet.upper_bound (temp4search))!=booSet.begin()){
+			--it_booSet;
+
+			trashkiller.push_back(*it_booSet);
+			booSet.erase(it_booSet);
+			rate1=rate1*pow(1.02,ceil(it_booSet->duration/rate1)/60);
+			temp4search.duration=int(600*rate1);
+			cout<<rate1<<endl;
+		}
+		cout<<"end trashkiller build"<<endl;
+
+
+	it_booSet=booSet.begin();
+
+	bool smallrunout=false;
+	toy temp4search;
+	while(!booSet.empty()&&!longterm.empty()){
+		int rateincreasecount=0;
+		while(elfheap.front().rate<4&&!booSet.empty()){
+
+			int elfActiveTimeTo19_2=1140-(elfheap.front().activetime)%1440;
+			temp4search.duration=int(elfActiveTimeTo19_2*elfheap.front().rate);  //can be min(int(elfheap.front().rate*(log(4/elfheap.front().rate)/log(1.02))),int(elfActiveTimeTo19_2*elfheap.front().rate))
+			if((it_booSet = booSet.upper_bound (temp4search))!=booSet.begin()){  //we see if any bootime can fit the slot, otherwise we choose the smallest.
+				it_booSet = --it_booSet;
+				if(it_booSet->duration<150&&rateincreasecount>4){  // try not to use too many safe boo
+					//cout<<"x"<<endl;
+					break;
+				}
+				// use the boo more efficiently, can be cancle to see if it improve the result
+				if(elfheap.front().rate*pow(1.02,((it_booSet->duration/elfheap.front().rate)/60))>4){  //if
+					temp4search.duration=int(elfheap.front().rate*(log(4/elfheap.front().rate)/log(1.02)));
+					if((it_booSet = booSet.upper_bound (temp4search))!=booSet.begin()){
+						it_booSet = --it_booSet;
+						work(elfheap.front(),*it_booSet);
+						Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+						//cout<<"boo"<<endl;
+						booSet.erase(it_booSet);
+						break;
+					}
+					else{
+						cout<<"break inside rate judge loop"<<endl;
+						break;
+					}
+				}
+			}
+			else if(booSet.begin()->duration>150){ //run out of the small
+				cout<<"break run out of small"<<endl;
+				smallrunout=true;
+				break;
+			}
+			else{  // slot is too small for boo, so go to next day
+				//cout<<"break jump to next day"<<endl;
+				elfheap.front().activetime=((elfheap.front().activetime)/1440+1)*1440+540;
+				continue;
+			}
+
+			work(elfheap.front(),*it_booSet);
+			Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+			//cout<<"boo"<<endl;
+			++rateincreasecount;
+			booSet.erase(it_booSet);
+
+		}
+
+		// use 4 rate to kill some large in booSet
+		temp4search.duration=1968;
+		int k=0;
+		while(k<150&&elfheap.front().rate>3.9&&(it_booSet = booSet.upper_bound (temp4search))!=booSet.end()){
+			elfheap.front().activetime=((elfheap.front().activetime)/1440+1)*1440+540;
+			work(elfheap.front(),*it_booSet);
+			Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+			cout<<"boo1968"<<endl;
+			booSet.erase(it_booSet);
+			k++;
+		}
+		elfheap.front().activetime=((elfheap.front().activetime)/1440+1)*1440+540;
+
+
+		work(elfheap.front(),longterm.back());
+		//cout<<"shittttttttttttttttt!"<<endl;
+		Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+
+
+		longterm.pop_back();
+
+		make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+
+		if(smallrunout==true)
+			break;
+
+
+
+
+
+
+
+
+
+//		optAssign temp4search;
+//		int elfActiveTimeTo19_2=1140-(elfheap.front().activetime)%1440;
+//
+//			//
+//		temp4search.bootime=int(ceil(elfActiveTimeTo19_2)*0.25);
+//
+//		//temp4search.bootime=int(ceil(1140-(elfheap.front().activetime)%1440)*0.25);
+//		//optAssignOutput<<"bootime:"<<temp4search.bootime<<" ";
+//
+//
+//		if((it_optAssignSet = optAssignSet.upper_bound (temp4search))!=optAssignSet.begin()){  //we see if any bootime can fit the slot, otherwise we choose the smallest.
+//			it_optAssignSet = --it_optAssignSet;
+//		}
+//
+//
+//
+//
+//		//optAssignOutput<<"bootime_opt:"<<it_optAssignSet->bootime<<" "<<it_optAssignSet->optAssignBlock[0].duration<<endl;
+//		//vector<toy>* matchtoyset=findActiveStart(elfheap.front(),optassign);
+//		for(int j=it_optAssignSet->optAssignBlock.size()-1;j>=0;j--){
+//			//need to advance the activetime to next day if need
+//			elfActiveTimeTo19_2=1140-(elfheap.front().activetime)%1440;
+//			int workMinutes_2=long(ceil(it_optAssignSet->optAssignBlock[j].duration/elfheap.front().rate));
+//			if(elfActiveTimeTo19_2<workMinutes_2&&j!=0){
+//				elfheap.front().activetime=((elfheap.front().activetime)/1440+1)*1440+540;
+//			}
+//
+//			//optAssignOutput<<it_optAssignSet->optAssignBlock[j].duration<<" ";
+//			work(elfheap.front(),it_optAssignSet->optAssignBlock[j]);
+//			Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+//		}
+//		//cout<<endl;
+//		optAssignSet.erase(it_optAssignSet);
+//		make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+	}
+
+
+	///build the trash///////////////////////////
+		long sumofrestsafeboo=0;
+		it_booSet=booSet.end();
+		while(!booSet.empty()){
+
+			it_booSet=booSet.end();
+			--it_booSet;
+			cout<<it_booSet->duration<<endl;
+			optAssignOutput<<it_booSet->duration<<endl;
+			if(it_booSet->duration>150){
+				trash.push_back(*it_booSet);
+				booSet.erase(it_booSet);
+			}
+			else
+				break;
+			sumofrestsafeboo+=it_booSet->duration;
+		}
+		optAssignOutput<<"sumofrestsafeboo:"<<sumofrestsafeboo<<endl;
+		optAssignOutput<<"all the rest booSet printed!!!!!!!!!!!"<<endl;
+
+
+
+
+		//kill the trash///////////////////////////////
+		for(int i=0;i<trashkiller.size();i++){
+			elfheap.front().activetime=((elfheap.front().activetime)/1440+1)*1440+540;
+			work(elfheap.front(),trashkiller[i]);
+			Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+	        sumofshort-=trashkiller[i].duration;
+		}
+		for(long i=0;i<trash.size();i++){
+			elfheap.front().activetime=((elfheap.front().activetime)/1440+1)*1440+540;
+			work(elfheap.front(),trash[i]);
+			Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+			sumofshort-=trash[i].duration;
+		}
+		make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+
+
+	// do the rest
+	long restboosum=0;
+
+	for(it_booSet=booSet.begin();it_booSet!=booSet.end();++it_booSet){
+		optAssignOutput<<it_booSet->duration<<endl;
+		restboosum+=it_booSet->duration;
+	}
+
+	optAssignOutput<<"all the rest booSet printed!!!!!!!!!!!"<<endl;
+
+	it_booSet=booSet.end();
+	cout<<"rest longterm size:"<<longterm.size()<<endl;
+	do {
+		--it_booSet;
+		elfheap.front().activetime=((elfheap.front().activetime)/1440+1)*1440+540;
+		work(elfheap.front(),*it_booSet);
+
+		cout<<"BOOOOOOO"<<endl;
+
+		Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+		optAssignOutput<<"booSet:"<<it_booSet->duration<<endl;
+		if(!longterm.empty()){
+			work(elfheap.front(),longterm.back());
+
+			Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+			optAssignOutput<<"longterm:"<<longterm.back().duration<<endl;
+			cout<<"shit!"<<endl;
+			longterm.pop_back();
+		}
+		make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+
+
+	}while(it_booSet!=booSet.begin());
+
+	int restlongsize=longterm.size();
+
+	while(!longterm.empty()){
+		work(elfheap.front(),longterm.back());
+
+		Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+		optAssignOutput<<"longterm:"<<longterm.back().duration<<endl;
+		cout<<"shit!"<<endl;
+		longterm.pop_back();
+
+		make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+	}
+
+	optAssignOutput<<"rest booSet size:"<<booSet.size()<<endl;
+	optAssignOutput<<"long size:"<<restlongsize<<endl;
+	optAssignOutput<<"restboosum:"<<restboosum<<endl;
+
+
+
+
+//	if(full==true){//need to consider the rest of the shortterm
+//		while(!shortterm.empty()){
+//			work(elfheap.front(),shortterm.back());
+//			Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+//			make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+//			shortterm.pop_back();
+//		}
+//    }
+
+	//main loop
+//	int shitcount=0;
+//	int boocount=0;
+//	while(!toylist.empty()){  //we do not consider elf wait for a good time to begin,
+//	  // if it is longterm, we can always start any time. since it will go to cap.
+//	  //if not we choose to wait unless we can boost.
+//	  // reading both end in a long sequence could be an idea.
+//	  //Can elf start work from night? No need, since elf always available during day time.
+//
+//	  while(elfheap.front().rate<1){  //can adjust this to optimize
+//	//		  if(!work(elfheap.front(),toylist.front())){
+//	//			  toylist.pop_front();
+//	//			  break;
+//	//		  }
+//	//		  if(elfheap.front().rate<0.3)
+//	//			  elfheap.front().activetime=((a.activetime)/1440+1)*1440+540;
+//		  if((elfheap.front().activetime+long(ceil(toylist.front().duration/elfheap.front().rate)))%1440>1140)
+//			  break;
+//		  work(elfheap.front(),toylist.front());
+//		  Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+//		  toylist.pop_back();
+//	//		  if(work(elfheap.front(),toylist.front())){
+//	//			  boocount++;
+//	//		  }
+//	//		  else
+//	//			  shitcount++;
+//	//		  Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+//	//
+//	//		  toylist.pop_front();
+//	//		  if(boocount+shitcount==10){
+//	//			  boocount=0;
+//	//			  shitcount=0;
+//	//		  }
+//	//		  if(shitcount-boocount>1){
+//	//			  break;
+//	//		  }
+//	  }
+//	  boocount=0;
+//	  shitcount=0;
+//	  if(toylist.empty())
+//		  break;
+//	  work(elfheap.front(),toylist.back());
+//	  Tempsubmissionfile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+//
+//	  toylist.pop_back();
+//	  make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+//
+//
+//	}
+
+
+
+	cout<<"finished and sort the submission vector"<<endl;
+	//  Tempsubmissionfile<<"ToyId,ElfId,StartTime,Duration"<<endl;
+	//  for(int i=0;i<submission.size();i++){
+	//	  Tempsubmissionfile<<submission[i].ToyId<<","<<submission[i].ElfId<<","<<submission[i].StartTime.year<<" "<<submission[i].StartTime.month<<" "<<submission[i].StartTime.day<<" "<<submission[i].StartTime.hour<<" "<<submission[i].StartTime.minute<<","<<submission[i].duration<<","<<submission[i].StartMinute<<","<<submission[i].rate<<endl;
+	//  }
+
+	cout<<"submission size:"<<submission.size()<<endl;
+
+	sort(submission.begin(),submission.end(),comp_StartMinute);
+
+	cout<<"printing the final result"<<endl;
+
+	FinalSubmission<<"ToyId,ElfId,StartTime,Duration"<<endl;
+
+
+	for(long i=0;i<submission.size();++i){
+		FinalSubmission<<submission[i].ToyId<<","<<submission[i].ElfId<<","<<submission[i].StartTime.year<<" "<<submission[i].StartTime.month<<" "<<submission[i].StartTime.day<<" "<<submission[i].StartTime.hour<<" "<<submission[i].StartTime.minute<<","<<submission[i].duration<<endl;
+	}
+	cout<<"printed!"<<endl;
+
+
+
+	//  for(int i=0;i <10;i++){
+	//	  cout<<toylist[i].id<<","<<toylist[i].year<<","<<toylist[i].month<<","<<toylist[i].day<<","<<toylist[i].duration<<endl;
+	//	  //cout<<toylist.size()<<endl;
+	//  }
+
+
+	//main loop
+
+	//  vector<elf> elfwaitheap(elvesarray,elvesarray+sizeof(elvesarray) / sizeof(elf));
+	//  vector<elf> elfrunheap;
+	//  vector<toy> toyactiveheap;
+	//  make_heap (toyactiveheap.begin(),toyactiveheap.end(),comp_toy);
+	//  //make_heap (elfwaitheap.begin(),elfwaitheap.end(),comp_elf);
+	//  make_heap (elfrunheap.begin(),elfrunheap.end(),comp_run);
+	//  int tempcount=0;
+
+
+	//  for(int i=toylist[0].activetime;i<toylist[toylist.size()-1].activetime;i++){
+	//
+	//
+	//	  while(toylist[tempcount].activetime==i){ //put toy order to the active heap
+	//		  tempcount++;
+	//		  toyactiveheap.push_back(toylist[tempcount]); push_heap (toyactiveheap.begin(),toyactiveheap.end(),comp_toy);
+	//	  }
+	//
+	//	  //check if i is in the sanctioned hour
+	//	  	  if (true){}
+	//
+	//
+	//	  while(elfrunheap.front().activetime==i){// put available elf to waiting heap
+	//		  pop_heap (elfrunheap.begin(),elfrunheap.end(),comp_run);
+	//		   //cout<<v.back().id<<endl;
+	//		  elfwaitheap.push_back(elfrunheap.back()); push_heap (elfwaitheap.begin(),elfwaitheap.end(),comp_wait);
+	//		  elfrunheap.pop_back();
+	//	  }
+	//
+	//	  while(!elfwaitheap.empty()&&!toyactiveheap.empty()){
+	//		  pop_heap (elfwaitheap.begin(),elfwaitheap.end(),comp_wait);
+	//		  pop_heap (toyactiveheap.begin(),toyactiveheap.end(),comp_toy);
+	//		  elf assignedelf=assign(elfwaitheap.back(),toyactiveheap.back(),i);
+	//		  elfrunheap.push_back(assignedelf); push_heap (elfrunheap.begin(),elfrunheap.end(),comp_run);
+	//
+	//		  elfwaitheap.pop_back();
+	//		  toyactiveheap.pop_back();
+	//
+	//
+	//	  }
+	//
+	//
+	//
+	//
+	//
+	//  }
+
+
+
+
+	  //	  pop_heap (v.begin(),v.end(),comp);
+	//	  v.back()
+	//	  toylist[i].elfid=
+
+
+
+	return 0;
+}
+//
+//#include <stdio.h>      /* printf */
+//#include <time.h>
+//#include <iostream>
+//using namespace std;/* time_t, struct tm, difftime, time, mktime */
+//
+//int main ()
+//{
+//  time_t timer;
+//  struct tm y2k;
+//  double seconds;
+//  struct tm * ptm;
+//
+//  y2k.tm_hour = 0;   y2k.tm_min = 0; y2k.tm_sec = 0;
+//  y2k.tm_year = 100; y2k.tm_mon = 0; y2k.tm_mday = 1;
+//
+//  cout<<time(&timer)<<endl; /* get current time; same as: timer = time(NULL)  */
+//
+//  timer=23067739880;
+//  ptm = gmtime ( &timer );
+//
+//  cout<<ptm->tm_yday<<endl;
+//  cout<<ptm->tm_year+1900<<endl;
+//  cout<<ptm->tm_mon+1<<endl;
+//  cout<<ptm->tm_mday<<endl;
+//  cout<<ptm->tm_hour<<endl;
+//  cout<<ptm->tm_min<<endl;
+//
+//
+//
+//
+//  seconds = difftime(timer,mktime(&y2k));
+//
+//  printf ("%.f seconds since January 1, 2000 in the current timezone", seconds);
+//
+//  return 0;
+//}
+
+
