@@ -1,0 +1,586 @@
+
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <stdio.h>
+#include <algorithm>
+#include <list>
+#include <math.h>
+#include <time.h>
+
+using namespace std;
+long long const ref_time_second=1388534400; //2014.1.1.0.0 00:00
+int const elf_starting_minute=540; //2014.1.1 9:00   46
+double threshold1=712.7706741;
+int assigncount=0;
+int const test_subset_size=10000000;
+int const NumElves=900;
+
+
+struct elf{
+	int id=0;
+	double rate=1;
+	//bool work=0;
+	//bool used=0;
+	int activetime=elf_starting_minute;
+};
+
+struct toy{
+	int id;
+	int year;
+	int month;
+	int day;
+	int hour;
+	int minute;
+	int activetimeinMinute;
+	long duration;
+	int elfid;
+};
+
+struct date{
+	int year;
+	int month;
+	int day;
+	int hour;
+	int minute;
+};
+
+struct assign{
+	int ToyId=0;
+	int ElfId=0;
+	date StartTime={};
+	long StartMinute=0;
+	long duration=0;
+	double rate=0;
+};
+
+list<toy> toylist;
+list<toy> longterm;
+list<toy> midterm;
+list<toy> shortterm;
+vector<assign> submission;
+
+//int MinInMon_Leap[13]={0,31*24*60,29*24*60,31*24*60,30*24*60,31*24*60,30*24*60,31*24*60,31*24*60,30*24*60,31*24*60,30*24*60,31*24*60};
+//int MinInMon[13]={0,31*24*60,28*24*60,31*24*60,30*24*60,31*24*60,30*24*60,31*24*60,31*24*60,30*24*60,31*24*60,30*24*60,31*24*60};
+
+int date2min(int month, int day, int hour, int minute){
+	if(month==3){
+		month=(month-1)*28;
+	}
+	if(month==5||month==7||month==10||month==12){
+		month=(month-1)*30;
+	}
+	else
+		month=(month-1)*31;
+		return month*24*60+(day-1)*24*60+hour*60+minute; //if the order list go beyond one year, an adjustment is need.
+}
+
+date min2date(int min){
+	date d;
+	struct tm * ptm;
+	time_t a=min*60+ref_time_second;
+	ptm = gmtime (&a);
+	d.year=ptm->tm_year;
+	d.month=ptm->tm_mon;
+	d.day=ptm->tm_mday;
+	d.hour=ptm->tm_hour;
+	d.minute=ptm->tm_min;
+	return d;
+}
+
+bool comp_wait(elf a, elf b){
+	if(a.rate>b.rate)
+		return false;
+	return true;
+}
+
+bool comp_toy(toy a, toy b){ //increase should be > when use sort in list
+	if(a.duration>b.duration)
+		return false;
+	return true;
+}
+
+bool comp_toy2(toy a, toy b){
+	if(a.duration>b.duration)
+		return false;
+	return true;
+}
+
+bool comp_run(elf a, elf b){
+	if(a.activetime<b.activetime)
+		return false;
+	return true;
+}
+
+bool comp_elf(elf a, elf b){
+	if(a.activetime<b.activetime)
+		return false;
+	return true;
+}
+
+assign assigntask(elf a, toy b){
+	assign c;
+	c.ElfId=a.id;
+	c.ToyId=b.id;
+	c.StartTime=min2date(a.activetime);
+	c.StartMinute=a.activetime;
+	c.duration=long(ceil(b.duration/a.rate));
+	c.rate=a.rate;
+	assigncount++;
+	return c;
+}
+
+//bool boost(elf& a, list<toy> & b=shortterm){
+//	if(b.empty())
+//		return false;
+//	//grab a toy to the elf
+//	int workminutes=int(ceil(b.front().duration/a.rate));
+//	if(workminutes>600)
+//		return false;
+//	if ((a.activetime+workminutes)%1440<=1140){ //the finish time is with in sanctioned hour, since shortterm never go beyond 10 hours.
+//		submission.push_back(assigntask(a,b.front()));
+//		a.activetime+=workminutes;
+//		a.rate*=pow(1.02,double(workminutes)/60);
+//		if(a.rate>4)
+//			a.rate=4;
+//		b.pop_front();
+//		return true;
+//	}
+//	//else if((a.activetime+workminutes)%1440>1140){
+//	else if(((1140-a.activetime%1440)*0.1879511236)>=((a.activetime+workminutes)%1440-1140)){ //boost with penalty
+//			submission.push_back(assigntask(a,b.front()));
+//			a.activetime=(a.activetime/1440)*1440+1440+((a.activetime+workminutes)%1440-1140); //do not need to consider the case when rest time go beyond one day.
+//			a.rate*=pow(1.02,double(1140-a.activetime%1440)/60)*pow(0.9,double((a.activetime+workminutes)%1440-1140)/60);
+//			if(a.rate>4)
+//				a.rate=4;
+//			b.pop_front();
+//			return true;
+//	}
+//	return false;
+//}
+
+//bool OT(elf& a, list<toy> & b=longterm){///???????????????????
+//	if(b.empty())
+//		return false;
+//	int workminutes=int(ceil(b.back().duration/a.rate));
+////	if ((a.activetime+workminutes)%1440<=1140){ //the finish time is with in sanctioned hour, since shortterm never go beyond 10 hours.
+////		submission.push_back(assigntask(a,b.back()));
+////		a.activetime+=workminutes;
+////		a.rate*=pow(1.02,double(workminutes)/60);
+////		if(a.rate>4)
+////			a.rate=4;
+////		b.pop_back();
+////		return true;
+////	}
+//	if ((a.activetime+workminutes)%1440<=1140){ //the finish time is with in sanctioned hour, since shortterm never go beyond 10 hours.
+//		submission.push_back(assigntask(a,b.back()));
+//		int normaltime=(a.activetime+workminutes)/1440*600+(a.activetime+workminutes)%1440
+//		a.activetime+=workminutes;
+//		a.rate*=pow(1.02,double(workminutes)/60);
+//		if(a.rate>4)
+//			a.rate=4;
+//		b.pop_back();
+//		return true;
+//	}
+//	else{ //if(((1140-a.activetime%1440)*0.1879511236)>=((a.activetime+workminutes)%1440-1140)){ //boost with penalty
+//		submission.push_back(assigntask(a,b.back()));
+//
+//
+//
+//
+//		?a.activetime=(a.activetime/1440)*1440+1440+((a.activetime+workminutes)%1440-1140); //do not need to consider the case when rest time go beyond one day.
+//		a.rate*=pow(1.02,double(1140-a.activetime%1440)/60)*pow(0.9,double((a.activetime+workminutes)%1440-1140)/60);
+//		if(a.rate>4)
+//			a.rate=4;
+//		if(a.rate<0.25)
+//			a.rate=0.25;
+//		b.pop_front();
+//		return true;
+//	}
+//	return false;
+//}
+
+bool work(elf & a, const toy & b){  // under normal situation, it shall always return true
+    //cout<<"elfid:"<<a.id<<endl;
+	submission.push_back(assigntask(a,b));
+
+	int workMinutes=long(ceil(b.duration/a.rate));
+	//cout<<"ass:"<<assigncount<<"	id:"<<a.id<<"	rate:"<<a.rate<<"du:"<<b.duration<<" "<<workMinutes<<endl;
+
+	int elfActiveTimeTo19=1140-(a.activetime)%1440;
+
+	//use this can let elf start from 9
+	int elfActiveTimeChangeToNextDay9=((a.activetime)/1440+1)*1440+540;
+	//
+	int OTMinutes=workMinutes-elfActiveTimeTo19;
+	int ResidualOTMinutes=OTMinutes%1440;
+	int sanctionedMinutes=0;
+	int unsanctionedMinutes=0;
+	int firstRestPeriod=(1140-(a.activetime+workMinutes)%1440);
+
+	if(workMinutes<=elfActiveTimeTo19){
+		a.activetime+=workMinutes;
+		sanctionedMinutes=workMinutes;
+		a.rate*=pow(1.02,double(sanctionedMinutes)/60)*pow(0.9,double(unsanctionedMinutes)/60);
+		if(a.rate>4)
+			a.rate=4;
+		if(a.rate<0.25)  // maybe not necessary
+			a.rate=0.25;
+//		cout<<"boost"<<endl;
+//		cout<<a.rate<<endl;
+//		cout<<a.activetime<<endl;
+		return true;
+	}
+
+	else if(ResidualOTMinutes<=840){  // ending inside the unsanctioned period
+		sanctionedMinutes=OTMinutes/1440*600+elfActiveTimeTo19;
+		unsanctionedMinutes=ResidualOTMinutes+OTMinutes/1440*840;
+		int unsanctionedMinutesMinusFirst=unsanctionedMinutes-firstRestPeriod;
+		double changerate=pow(1.02,double(sanctionedMinutes)/60)*pow(0.9,double(unsanctionedMinutes)/60);
+		a.rate*=changerate;
+		if(a.rate>4)
+			a.rate=4;
+		if(a.rate<0.25)
+			a.rate=0.25;
+//		cout<<"Shittttttttt!"<<endl;
+//		cout<<a.rate<<endl;
+//		cout<<a.activetime<<endl;
+
+		if((a.activetime+workMinutes+300)%1440>=840){ //&&(a.activetime+workMinutes)%1440<1140){ //rest can start from sanctioned period
+			a.activetime+=workMinutes+firstRestPeriod+unsanctionedMinutesMinusFirst/600*1440+unsanctionedMinutesMinusFirst%600+840;
+		}
+		else{ //rest can not start from sanctioned period, so it must start from 9:00 next day.
+			a.activetime+=workMinutes+(840-(a.activetime+workMinutes+300)%1440)+unsanctionedMinutes/600*1440+unsanctionedMinutes%600;
+		}
+		if(changerate<=1)
+			return false;
+		return true;
+	}
+	else{ //ending inside the sanctioned period
+		sanctionedMinutes=OTMinutes/1440*600+elfActiveTimeTo19+(ResidualOTMinutes-840);
+		unsanctionedMinutes=(OTMinutes/1440+1)*840;
+		int unsanctionedMinutesMinusFirst=unsanctionedMinutes-firstRestPeriod;
+		if((a.activetime+workMinutes+300)%1440>=840){ //&&(a.activetime+workMinutes)%1440<1140){ //rest can start from sanctioned period
+			a.activetime+=workMinutes+firstRestPeriod+unsanctionedMinutesMinusFirst/600*1440+unsanctionedMinutesMinusFirst%600+840;
+		}
+		else{ //rest can not start from sanctioned period, so it must start from 9:00 next day.
+			a.activetime+=workMinutes+(840-(a.activetime+workMinutes+300)%1440)+unsanctionedMinutes/600*1440+unsanctionedMinutes%600;
+		}
+		double changerate=pow(1.02,double(sanctionedMinutes)/60)*pow(0.9,double(unsanctionedMinutes)/60);
+		a.rate*=changerate;
+		if(a.rate>4)
+			a.rate=4;
+		if(a.rate<0.25)
+			a.rate=0.25;
+
+//		cout<<"Shittttttttt!"<<endl;
+//		cout<<a.rate<<endl;
+//		cout<<a.activetime<<endl;
+		if(changerate<=1)
+			return false;
+		return true;
+	}
+	return false;
+}
+
+
+void checkActiveTimeofElf(){
+
+}
+//elf assign(elf a, toy b, int     ){
+//	elf c;
+//
+//	return c;
+//}
+
+
+int main () {
+  string line;
+
+  //statistic
+  int longtermcount=0;
+  int shorttermcount=0;
+  long long sumoflong=0;
+  long long sumofshort=0;
+  int midtermcount=0;
+  long long sumofmid=0;
+
+
+  elf elvesarray[NumElves];
+  for (int i=0;i<NumElves;i++){
+ 	  elvesarray[i].id=i+1;
+  }
+
+
+
+
+  //vector<elf> v(elvesarray,elvesarray+sizeof(elvesarray) / sizeof(elf));
+  //make_heap (v.begin(),v.end(),comp_wait);
+ //cout<<v.front().id<<endl;
+  //pop_heap (v.begin(),v.end(),comp_wait);
+  //cout<<v.back().id<<endl;
+
+
+
+
+  ifstream myfile ("toys_rev2.csv");
+  ofstream modifieddata("toys_minute.csv");
+  ofstream submissionFile("toys_submission.csv");
+  modifieddata<<"id,start_time,duration\n";
+  long max=0;
+  if (myfile.is_open())
+  {
+	getline (myfile,line);
+	int count=0;
+    while ( getline (myfile,line) && count<test_subset_size)
+    {
+      char * pch;
+      char * a = new char [line.length()+1];
+      strcpy (a, line.c_str());
+    	  pch = strtok (a," ,.-");
+    	  toy* temp=new toy();
+    	  temp->id=atoi(pch);
+
+    	  modifieddata<<temp->id<<",";
+
+    	  pch = strtok (NULL," ,.-");
+    	  temp->year=0;  //if the order list go beyond one year, here we need to change back into atoi(pch).
+
+    	  pch = strtok (NULL," ,.-");
+    	  temp->month=atoi(pch);
+
+    	  pch = strtok (NULL," ,.-");
+    	  temp->day=atoi(pch);
+
+    	  pch = strtok (NULL," ,.-");
+    	  temp->hour=atoi(pch);
+
+    	  pch = strtok (NULL," ,.-");
+    	  temp->minute=atoi(pch);
+
+    	  temp->activetimeinMinute=date2min(temp->month,temp->day, temp->hour, temp->minute);
+    	  modifieddata<<temp->activetimeinMinute<<",";
+
+    	  pch = strtok (NULL," ,.-");
+    	  temp->duration=atol(pch);
+
+//    	  if(temp->duration>max){
+//    		  max=temp->duration;
+//    		  cout<<max<<endl;
+//    	  }
+
+    	  if (ceil(temp->duration/4.0)>threshold1){
+    		  //cout<<temp->month<<","<<temp->day<<","<<temp->hour<<","<<temp->minute<<","<<temp->duration<<endl;
+    		  longtermcount++;
+    		  sumoflong+=temp->duration;
+    		  longterm.push_back(*temp);
+    	  }
+    	  if(ceil(temp->duration/0.25)<=600){
+    		  shorttermcount++;
+    		  sumofshort+=temp->duration;
+    		  shortterm.push_back(*temp);
+    	  }
+    	  else{ // if(temp->duration>600&&temp->duration<=threshold1){
+    		  midtermcount++;
+    	      sumofmid+=temp->duration;
+    	      midterm.push_back(*temp);
+    	  }
+
+    	  modifieddata<<temp->duration<<"\n";
+
+    	  toylist.push_back(*temp);
+
+    	  delete temp;
+    	  delete[] a;
+
+
+    	  count++;
+    }
+    myfile.close();
+  }
+
+
+  else cout << "Unable to open file";
+  cout<<"longtermcount:"<<longtermcount<<endl;
+  cout<<"sum:"<<sumoflong<<endl;
+  cout<<"shorttermcount:"<<shorttermcount<<endl;
+  cout<<"sum:"<<sumofshort<<endl;
+  cout<<"midtermcount:"<<midtermcount<<endl;
+  cout<<"sum:"<<sumofmid<<endl;
+
+  //longterm.sort(comp_toy);//increasing, by doing this we can use same OT function for both long and mid term
+  //shortterm.sort(comp_toy);//increasing
+  //midterm.sort(comp_toy); //increasing
+  toylist.sort(comp_toy);
+  int countprint=0;
+  for (list<toy>::iterator it=toylist.begin();countprint<100 ; ++it){
+	countprint++;
+  	cout<<it->duration<<endl;
+  }
+  vector<elf> elfheap(elvesarray,elvesarray+sizeof(elvesarray) / sizeof(elf));
+  make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+//  for(int i=0;i<elfheap.size();i++){
+//	  cout<<elfheap[i].activetime<<endl;
+//  }
+
+  cout<<"done"<<endl;
+  submissionFile<<"ToyId,ElfId,StartTime,Duration"<<endl;
+
+  //main loop
+  int shitcount=0;
+  int boocount=0;
+  while(!toylist.empty()){  //we do not consider elf wait for a good time to begin,
+	  // if it is longterm, we can always start any time. since it will go to cap.
+	  //if not we choose to wait unless we can boost.
+	  // reading both end in a long sequence could be an idea.
+	  //Can elf start work from night? No need, since elf always available during day time.
+
+
+
+
+	  while(elfheap.front().rate<1){  //can adjust this to optimize
+//		  if(!work(elfheap.front(),toylist.front())){
+//			  toylist.pop_front();
+//			  break;
+//		  }
+//		  if(elfheap.front().rate<0.3)
+//			  elfheap.front().activetime=((a.activetime)/1440+1)*1440+540;
+		  if((elfheap.front().activetime+long(ceil(toylist.front().duration/elfheap.front().rate)))%1440>1140)
+			  break;
+
+		  work(elfheap.front(),toylist.front());
+		  toylist.pop_front();
+		  submissionFile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+
+//		  if(work(elfheap.front(),toylist.front())){
+//			  boocount++;
+//		  }
+//		  else
+//			  shitcount++;
+//		  submissionFile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+//
+//		  toylist.pop_front();
+//		  if(boocount+shitcount==10){
+//			  boocount=0;
+//			  shitcount=0;
+//		  }
+//		  if(shitcount-boocount>1){
+//			  break;
+//		  }
+	  }
+	  boocount=0;
+	  shitcount=0;
+	  if(toylist.empty())
+		  break;
+
+	  work(elfheap.front(),toylist.back());
+	  submissionFile<<submission.back().ToyId<<","<<submission.back().ElfId<<","<<submission.back().StartTime.year<<" "<<submission.back().StartTime.month<<" "<<submission.back().StartTime.day<<" "<<submission.back().StartTime.hour<<" "<<submission.back().StartTime.minute<<","<<submission.back().duration<<","<<submission.back().StartMinute<<","<<submission.back().rate<<endl;
+	  toylist.pop_back();
+
+	  make_heap (elfheap.begin(),elfheap.end(),comp_elf);
+	  //pop_heap (elfheap.begin(),elfheap.end(),comp_elf);
+//	  for(int i=0;i<elfheap.size();i++){
+//	  	  cout<<elfheap[i].activetime<<endl;
+//	  }
+
+	  //push_heap (elfheap.begin(),elfheap.end(),comp_elf);
+//	  for(int i=0;i<elfheap.size();i++){
+//	  	  cout<<elfheap[i].activetime<<endl;
+//	  }
+
+
+
+
+
+
+//	  while(elfheap.back().rate<4){  //can adjust this to optimize
+//		  if(!boost(elfheap.back())){
+//			  if(!boost(elfheap.back(),midterm))
+//				  break;
+//		  }
+//	  }
+
+
+
+	  //		   //cout<<v.back().id<<endl;
+	  //		  elfwaitheap.push_back(elfrunheap.back()); push_heap (elfwaitheap.begin(),elfwaitheap.end(),comp_wait);
+	  //		  elfrunheap.pop_back();
+
+
+
+  }
+  cout<<"finished and printing"<<endl;
+//  submissionFile<<"ToyId,ElfId,StartTime,Duration"<<endl;
+//  for(int i=0;i<submission.size();i++){
+//	  submissionFile<<submission[i].ToyId<<","<<submission[i].ElfId<<","<<submission[i].StartTime.year<<" "<<submission[i].StartTime.month<<" "<<submission[i].StartTime.day<<" "<<submission[i].StartTime.hour<<" "<<submission[i].StartTime.minute<<","<<submission[i].duration<<","<<submission[i].StartMinute<<","<<submission[i].rate<<endl;
+//  }
+  cout<<"printed!"<<endl;
+
+
+
+//  for(int i=0;i <10;i++){
+//	  cout<<toylist[i].id<<","<<toylist[i].year<<","<<toylist[i].month<<","<<toylist[i].day<<","<<toylist[i].duration<<endl;
+//	  //cout<<toylist.size()<<endl;
+//  }
+
+
+  //main loop
+
+//  vector<elf> elfwaitheap(elvesarray,elvesarray+sizeof(elvesarray) / sizeof(elf));
+//  vector<elf> elfrunheap;
+//  vector<toy> toyactiveheap;
+//  make_heap (toyactiveheap.begin(),toyactiveheap.end(),comp_toy);
+//  //make_heap (elfwaitheap.begin(),elfwaitheap.end(),comp_elf);
+//  make_heap (elfrunheap.begin(),elfrunheap.end(),comp_run);
+//  int tempcount=0;
+
+
+//  for(int i=toylist[0].activetime;i<toylist[toylist.size()-1].activetime;i++){
+//
+//
+//	  while(toylist[tempcount].activetime==i){ //put toy order to the active heap
+//		  tempcount++;
+//		  toyactiveheap.push_back(toylist[tempcount]); push_heap (toyactiveheap.begin(),toyactiveheap.end(),comp_toy);
+//	  }
+//
+//	  //check if i is in the sanctioned hour
+//	  	  if (true){}
+//
+//
+//	  while(elfrunheap.front().activetime==i){// put available elf to waiting heap
+//		  pop_heap (elfrunheap.begin(),elfrunheap.end(),comp_run);
+//		   //cout<<v.back().id<<endl;
+//		  elfwaitheap.push_back(elfrunheap.back()); push_heap (elfwaitheap.begin(),elfwaitheap.end(),comp_wait);
+//		  elfrunheap.pop_back();
+//	  }
+//
+//	  while(!elfwaitheap.empty()&&!toyactiveheap.empty()){
+//		  pop_heap (elfwaitheap.begin(),elfwaitheap.end(),comp_wait);
+//		  pop_heap (toyactiveheap.begin(),toyactiveheap.end(),comp_toy);
+//		  elf assignedelf=assign(elfwaitheap.back(),toyactiveheap.back(),i);
+//		  elfrunheap.push_back(assignedelf); push_heap (elfrunheap.begin(),elfrunheap.end(),comp_run);
+//
+//		  elfwaitheap.pop_back();
+//		  toyactiveheap.pop_back();
+//
+//
+//	  }
+//
+//
+//
+//
+//
+//  }
+
+
+
+
+	  //	  pop_heap (v.begin(),v.end(),comp);
+//	  v.back()
+//	  toylist[i].elfid=
+
+
+
+  return 0;
+}
